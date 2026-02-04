@@ -1,172 +1,132 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Pro Screen & Audio Recorder</title>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tab & Mic Recorder</title>
     <style>
-      body {
-        font-family: sans-serif;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        height: 100vh;
-        background: #f0f2f5;
-      }
-      .controls {
-        background: white;
-        padding: 2rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      }
-      button {
-        padding: 10px 20px;
-        font-size: 16px;
-        cursor: pointer;
-        border: none;
-        border-radius: 5px;
-        margin: 5px;
-        transition: opacity 0.2s;
-      }
-      #start {
-        background: #28a745;
-        color: white;
-      }
-      #stop {
-        background: #dc3545;
-        color: white;
-      }
-      button:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-      }
-      p {
-        color: #666;
-        font-size: 14px;
-      }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #eceff1; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; width: 350px; }
+        h2 { color: #333; margin-bottom: 10px; }
+        p { color: #666; margin-bottom: 25px; font-size: 14px; }
+        button { width: 100%; padding: 12px; font-size: 16px; font-weight: bold; border: none; border-radius: 8px; cursor: pointer; margin-bottom: 10px; transition: 0.3s; }
+        #start { background: #007bff; color: white; }
+        #start:hover { background: #0056b3; }
+        #stop { background: #f44336; color: white; }
+        #stop:hover { background: #d32f2f; }
+        button:disabled { background: #ccc !important; cursor: not-allowed; }
+        .status { font-weight: bold; margin-top: 15px; color: #007bff; }
     </style>
-  </head>
-  <body>
-    <div class="controls">
-      <h2>Screen Recorder</h2>
-      <p>Captures: Screen + System Audio + Microphone</p>
-      <button id="start">Start Recording</button>
-      <button id="stop" disabled>Stop & Download</button>
+</head>
+<body>
+
+    <div class="card">
+        <h2>Web Recorder</h2>
+        <p>Captures this tab, your mic, and system audio.</p>
+        
+        <button id="start">Start Recording</button>
+        <button id="stop" disabled>Stop & Download</button>
+        
+        <div id="status" class="status"></div>
     </div>
 
-    <iframe
-      width="560"
-      height="315"
-      src="https://www.youtube.com/embed/l0Z3ZZ9JroQ?si=64nmf-BT1l2Nv9NR"
-      title="YouTube video player"
-      frameborder="0"
-      allow="
-        accelerometer;
-        autoplay;
-        clipboard-write;
-        encrypted-media;
-        gyroscope;
-        picture-in-picture;
-        web-share;
-      "
-      referrerpolicy="strict-origin-when-cross-origin"
-      allowfullscreen
-    ></iframe>
     <script>
-      let mediaRecorder;
-      let recordedChunks = [];
-      let combinedStream;
+        let mediaRecorder;
+        let recordedChunks = [];
 
-      const startBtn = document.getElementById("start");
-      const stopBtn = document.getElementById("stop");
+        const startBtn = document.getElementById('start');
+        const stopBtn = document.getElementById('stop');
+        const statusDiv = document.getElementById('status');
 
-      startBtn.onclick = async () => {
-        try {
-          // 1. Request Screen Stream (includes system audio option)
-          const screenStream = await navigator.mediaDevices.getDisplayMedia({
-            video: { cursor: "always" },
-            audio: true,
-          });
+        startBtn.onclick = async () => {
+            try {
+                // 1. Get Screen Stream - Specifically allowing "This Tab"
+                const screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { 
+                        displaySurface: "browser",
+                    },
+                    audio: true, // Captures system/tab audio
+                    selfBrowserSurface: "include", // ALLOWS SHARING THIS TAB
+                    preferCurrentTab: true         // HINTS BROWSER TO PICK THIS TAB
+                });
 
-          // 2. Request Microphone Stream
-          const micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true },
-          });
+                // 2. Get Microphone Stream
+                const micStream = await navigator.mediaDevices.getUserMedia({
+                    audio: { echoCancellation: true, noiseSuppression: true }
+                });
 
-          // 3. Mix Audio Tracks using Web Audio API
-          const audioCtx = new AudioContext();
-          const destination = audioCtx.createMediaStreamDestination();
+                // 3. Mix Audio using AudioContext
+                const audioCtx = new AudioContext();
+                const destination = audioCtx.createMediaStreamDestination();
 
-          // Add System Audio to mixer (if the user checked the 'share audio' box)
-          if (screenStream.getAudioTracks().length > 0) {
-            const source1 = audioCtx.createMediaStreamSource(screenStream);
-            source1.connect(destination);
-          }
+                // Add System/Tab Audio to mixer
+                if (screenStream.getAudioTracks().length > 0) {
+                    const source1 = audioCtx.createMediaStreamSource(screenStream);
+                    source1.connect(destination);
+                }
 
-          // Add Microphone to mixer
-          const source2 = audioCtx.createMediaStreamSource(micStream);
-          source2.connect(destination);
+                // Add Mic Audio to mixer
+                const source2 = audioCtx.createMediaStreamSource(micStream);
+                source2.connect(destination);
 
-          // 4. Create the final stream (Screen Video + Mixed Audio)
-          combinedStream = new MediaStream([
-            ...screenStream.getVideoTracks(),
-            ...destination.stream.getAudioTracks(),
-          ]);
+                // 4. Combine Video (Screen) + Mixed Audio (Mic + System)
+                const combinedStream = new MediaStream([
+                    ...screenStream.getVideoTracks(),
+                    ...destination.stream.getAudioTracks()
+                ]);
 
-          // 5. Initialize MediaRecorder
-          mediaRecorder = new MediaRecorder(combinedStream, {
-            mimeType: "video/webm;codecs=vp9,opus",
-          });
-          recordedChunks = [];
+                // 5. Setup MediaRecorder
+                mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm;codecs=vp9,opus' });
+                recordedChunks = [];
 
-          mediaRecorder.ondataavailable = (e) => {
-            if (e.data.size > 0) recordedChunks.push(e.data);
-          };
+                mediaRecorder.ondataavailable = (e) => {
+                    if (e.data.size > 0) recordedChunks.push(e.data);
+                };
 
-          mediaRecorder.onstop = () => {
-            const blob = new Blob(recordedChunks, { type: "video/webm" });
-            const url = URL.createObjectURL(blob);
+                mediaRecorder.onstop = () => {
+                    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                    const url = URL.createObjectURL(blob);
+                    
+                    // Create Download Link
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `web-recording-${Date.now()}.webm`;
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    // Clean up tracks and URL
+                    [screenStream, micStream].forEach(s => s.getTracks().forEach(t => t.stop()));
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    }, 100);
 
-            // Trigger Automatic Download
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `recording-${new Date().getTime()}.webm`;
-            document.body.appendChild(a);
-            a.click();
+                    statusDiv.innerText = "Downloaded!";
+                };
 
-            // Cleanup
-            setTimeout(() => {
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
-            }, 100);
+                // Auto-stop if user clicks "Stop Sharing" in the browser bar
+                screenStream.getVideoTracks()[0].onended = () => {
+                    if (mediaRecorder.state !== 'inactive') stopBtn.click();
+                };
 
-            // Stop all hardware usage
-            [screenStream, micStream].forEach((s) =>
-              s.getTracks().forEach((t) => t.stop()),
-            );
-          };
+                mediaRecorder.start();
+                
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                statusDiv.innerText = "🔴 Recording...";
 
-          // Auto-stop if user clicks native browser "Stop Sharing" button
-          screenStream.getVideoTracks()[0].onended = () => stopBtn.click();
+            } catch (err) {
+                console.error(err);
+                alert("Make sure to grant permissions and use a secure (HTTPS/Localhost) connection.");
+            }
+        };
 
-          mediaRecorder.start();
-
-          startBtn.disabled = true;
-          stopBtn.disabled = false;
-        } catch (err) {
-          console.error("Error starting recording:", err);
-          alert(
-            "Recording failed. Ensure you granted permissions and are using HTTPS/Localhost.",
-          );
-        }
-      };
-
-      stopBtn.onclick = () => {
-        mediaRecorder.stop();
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
-      };
+        stopBtn.onclick = () => {
+            mediaRecorder.stop();
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            statusDiv.innerText = "Processing...";
+        };
     </script>
-  </body>
+</body>
 </html>
